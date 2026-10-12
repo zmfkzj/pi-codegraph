@@ -1,0 +1,22 @@
+{
+  "name": "pi-codegraph",
+  "version": "0.1.0",
+  "description": "Connect the CodeGraph code graph (colbymchenry/codegraph) to Pi through its MCP server and a /codegraph command",
+  "type": "module",
+  "keywords": ["pi-package", "pi-extension", "codegraph", "mcp"],
+  "files": ["src", "README.md"],
+  "pi": { "extensions": ["./src/index.ts"] },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'test/**/*.test.ts'"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@types/node": "^22.19.19",
+    "typescript": "^6.0.2"
+  },
+  "engines": { "node": ">=22.19.0" }
+}
