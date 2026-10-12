@@ -44,7 +44,7 @@ Three things have separate versions, and this package updates only the first:
 
 | Piece | Where it comes from | Who updates it |
 |---|---|---|
-| pi-codegraph (this package) | the `codegraph/` submodule of oh-my-pi-extensions, or `git:github.com/zmfkzj/pi-codegraph` | `pi update` (the umbrella's hourly workflow moves its gitlink to the latest `main`) |
+| pi-codegraph (this package) | the `codegraph/` submodule of oh-my-pi-extensions, or `git:github.com/zmfkzj/pi-codegraph` | `pi update --extensions` (the umbrella's hourly workflow moves its gitlink to the latest `main`) |
 | CodeGraph CLI | install.sh (`~/.codegraph/versions/vX.Y.Z`, symlinked from `~/.codegraph/current` and `~/.local/bin/codegraph`) or `npm i -g @colbymchenry/codegraph` | you: `codegraph upgrade` (install.sh installs; `--check` only checks) or `npm update -g @colbymchenry/codegraph` |
 | CodeGraph MCP server | the CLI itself: `codegraph serve --mcp` (server name `codegraph`, version = the CLI's package version) | updated with the CLI; a running server or shared daemon keeps its old version until it restarts (new Pi session, `/reload`, or `codegraph daemon` stop) |
 
