@@ -38,6 +38,18 @@ Indexing stays a user action, as upstream asks: the model gets no tool that buil
 
 Verified with Pi 1.1.0 and CodeGraph 1.6.2 on Linux x64.
 
+## Versions and updates
+
+Three things have separate versions, and this package updates only the first:
+
+| Piece | Where it comes from | Who updates it |
+|---|---|---|
+| pi-codegraph (this package) | the `codegraph/` submodule of oh-my-pi-extensions, or `git:github.com/zmfkzj/pi-codegraph` | `pi update` (the umbrella's hourly workflow moves its gitlink to the latest `main`) |
+| CodeGraph CLI | install.sh (`~/.codegraph/versions/vX.Y.Z`, symlinked from `~/.codegraph/current` and `~/.local/bin/codegraph`) or `npm i -g @colbymchenry/codegraph` | you: `codegraph upgrade` (install.sh installs; `--check` only checks) or `npm update -g @colbymchenry/codegraph` |
+| CodeGraph MCP server | the CLI itself: `codegraph serve --mcp` (server name `codegraph`, version = the CLI's package version) | updated with the CLI; a running server or shared daemon keeps its old version until it restarts (new Pi session, `/reload`, or `codegraph daemon` stop) |
+
+This package never installs or upgrades the CLI. Upstream's MCP server checks GitHub for a newer release in the background (24 h cache in `~/.codegraph/`) and only reports it (stderr, MCP `initialize` instructions, `codegraph_status`) as "run `codegraph upgrade`"; `CODEGRAPH_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` turns that check off. `/codegraph status` shows the CLI path and version in use.
+
 ## Configuration
 
 | Variable | Effect |
