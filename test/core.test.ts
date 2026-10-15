@@ -91,7 +91,7 @@ test("mode, decision and server config", () => {
 test("output cleanup and argument completions", () => {
   assert.equal(cleanOutput("\x1b[32m┌  Syncing\x1b[0m\n│\n●  Already up to date\n└  Done\n"), "┌  Syncing\n●  Already up to date\n└  Done");
   assert.equal(cleanOutput("a\nb\nc", 2), "a\nb\n… 1 more lines");
-  assert.deepEqual(completeArguments("")?.map(item => item.value), ["status", "init", "sync", "help"]);
+  assert.deepEqual(completeArguments("")?.map(item => item.value), ["status", "init", "sync", "doctor", "install-deps", "help"]);
   assert.deepEqual(completeArguments("s")?.map(item => item.value), ["status", "sync"]);
   assert.equal(completeArguments("sync"), null);
   assert.equal(completeArguments("x"), null);

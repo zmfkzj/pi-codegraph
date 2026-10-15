@@ -145,6 +145,8 @@ export const COMMAND_COMPLETIONS: readonly CommandCompletion[] = [
   { value: "status", label: "status", description: "CLI, MCP registration and index status for this project" },
   { value: "init", label: "init", description: "Index this project (codegraph init) and connect the MCP server" },
   { value: "sync", label: "sync", description: "Update this project's index (codegraph sync)" },
+  { value: "doctor", label: "doctor", description: "Check the CLI, mcp.json entry and project index, with fixes" },
+  { value: "install-deps", label: "install-deps", description: "Install a missing codegraph CLI (upstream install.sh, no sudo)" },
   { value: "help", label: "help", description: "Show /codegraph usage" },
 ];
 

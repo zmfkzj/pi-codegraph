@@ -5,15 +5,25 @@ import {
   resolveCodegraphBinary, SERVER_NAME, serverConfig, type BinaryResolution, type Decision, type Environment,
 } from "./core.ts";
 import { answerWorkerCapability, isWorkerCapabilityRequest, WORKER_CAPABILITY_CHANNEL } from "./worker.ts";
+import { formatDependencyReport, registerDependencyProvider, type runProcess } from "./dependencies.ts";
+import { createCodegraphDependencyProvider, DEPENDENCY_LABEL } from "./doctor.ts";
 
 export * from "./core.ts";
 export * from "./worker.ts";
+export * from "./doctor.ts";
 
 export interface CodegraphExtensionOptions extends Environment {
   agentDir?: string;
+  /** doctor / install-deps: process runner and CPU architecture (tests inject fakes). */
+  dependencyRunner?: typeof runProcess;
+  arch?: string;
+  /** Where install-deps downloads install.sh (default: os.tmpdir()). */
+  tmpDir?: string;
 }
 
-export const USAGE = "Usage: /codegraph [status] | init | sync | help";
+export const USAGE = "Usage: /codegraph [status] | init | sync | doctor | install-deps | help";
+/** Every subcommand; anything else (or extra words) shows USAGE, as before. */
+export const SUBCOMMANDS: readonly string[] = ["status", "init", "sync", "doctor", "install-deps", "help"];
 
 /**
  * pi-codegraph: connects the upstream CodeGraph MCP server (`codegraph serve --mcp`, tool `codegraph_explore`)
@@ -33,6 +43,14 @@ export function createCodegraphExtension(options: CodegraphExtensionOptions = {}
       join(agentDir, "mcp.json"),
       ...(ctx.isProjectTrusted() ? [join(ctx.cwd, ".pi", "mcp.json")] : []),
     ]);
+
+    // Dependency check / install (umbrella channel and `/codegraph doctor|install-deps`): answer from load on.
+    // After an install, `apply` connects the server right away when the session directory is indexed.
+    const dependencies = createCodegraphDependencyProvider(
+      { ...options, env, agentDir, ...(options.dependencyRunner ? { run: options.dependencyRunner } : {}) },
+      { afterInstall: (ctx, report) => { if (report.items.some(item => item.status === "installed")) apply(ctx as ExtensionContext); } },
+    );
+    registerDependencyProvider(pi.events, dependencies);
 
     /** Register or withdraw the server for this session's directory; returns what it decided. */
     const apply = (ctx: ExtensionContext): Decision => {
@@ -108,16 +126,27 @@ export function createCodegraphExtension(options: CodegraphExtensionOptions = {}
     };
 
     pi.registerCommand("codegraph", {
-      description: "CodeGraph code graph: /codegraph [status] | init | sync | help",
+      description: "CodeGraph code graph: /codegraph [status] | init | sync | doctor | install-deps | help",
       getArgumentCompletions: completeArguments,
       handler: async (args, ctx) => {
         const [sub = "status", ...rest] = args.trim().split(/\s+/).filter(Boolean);
         const notify = (text: string, level: "info" | "warning" | "error" = "info") => { if (ctx.hasUI) ctx.ui.notify(text, level); };
-        if (rest.length || !["status", "init", "sync", "help"].includes(sub)) return notify(USAGE, "warning");
+        if (rest.length || !SUBCOMMANDS.includes(sub)) return notify(USAGE, "warning");
         if (sub === "help") {
-          return notify(`${USAGE}\n status: CLI, MCP and index state\n init: index this directory (codegraph init --yes), then connect the MCP server\n sync: update the index (codegraph sync)\nEnv: PI_CODEGRAPH_MCP=auto|always|off, PI_CODEGRAPH_BIN, CODEGRAPH_MCP_TOOLS`);
+          return notify(`${USAGE}\n status: CLI, MCP and index state\n init: index this directory (codegraph init --yes), then connect the MCP server\n sync: update the index (codegraph sync)\n doctor: check the CLI, your mcp.json entry and this project's index, with the fix for each problem\n install-deps: install a missing CLI with upstream's install.sh (user-level, no sudo; never upgrades, never indexes)\nEnv: PI_CODEGRAPH_MCP=auto|always|off, PI_CODEGRAPH_BIN, CODEGRAPH_MCP_TOOLS`);
         }
         if (sub === "status") return notify(await status(ctx));
+        if (sub === "doctor" || sub === "install-deps") {
+          const mode = sub === "doctor" ? "check" : "install";
+          if (mode === "install" && ctx.hasUI) ctx.ui.setStatus("codegraph", "codegraph: installing dependencies…");
+          try {
+            const report = mode === "check" ? await dependencies.check(ctx) : await dependencies.install(ctx);
+            const { text, level } = formatDependencyReport(DEPENDENCY_LABEL, report, mode);
+            return notify(text, level);
+          } finally {
+            if (mode === "install" && ctx.hasUI) ctx.ui.setStatus("codegraph", undefined);
+          }
+        }
         apply(ctx);
         if (!binary?.ok) return notify(`codegraph: ${binary?.message}`, "error");
         const index = findProjectIndex(ctx.cwd, env);

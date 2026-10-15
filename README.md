@@ -12,6 +12,8 @@ This package does not bundle or reimplement CodeGraph. It wires the upstream CLI
 | `/codegraph [status]` | CLI path and version, whether the server is registered (or why not), whether the tool is available, the project index, and `codegraph status` statistics. |
 | `/codegraph init` | Runs `codegraph init --yes <cwd>` (index the session directory), then connects the server right away, without `/reload`. |
 | `/codegraph sync` | Runs `codegraph sync <project root>` (incremental update, for when the file watcher is off). |
+| `/codegraph doctor` | Read-only health check of the CLI, your `codegraph` mcp.json entry and this project's index, with the fix for each problem (see [Dependency check and install](#dependency-check-and-install)). |
+| `/codegraph install-deps` | Installs a **missing** CLI with upstream's `install.sh` (user-level, no sudo); never upgrades, never writes mcp.json, never indexes. |
 | `/codegraph help` | Usage. |
 | orche worker capability `codegraph` | Every orche worker (`orche_task`) and sub-worker (`orche_spawn`), read-only roles included, gets **its own** CodeGraph MCP connection and `mcp__codegraph__codegraph_explore` in its own session (see below). |
 
@@ -25,7 +27,7 @@ Indexing stays a user action, as upstream asks: the model gets no tool that buil
 
 ## Requirements
 
-1. **The `codegraph` CLI** (not an npm dependency of this package; it ships its own Node runtime):
+1. **The `codegraph` CLI** (not an npm dependency of this package; it ships its own Node runtime). `/codegraph install-deps` runs the first command below for you when the CLI is missing (Linux/macOS); or install it yourself:
 
    ```sh
    curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh   # macOS / Linux
@@ -48,7 +50,26 @@ Three things have separate versions, and this package updates only the first:
 | CodeGraph CLI | install.sh (`~/.codegraph/versions/vX.Y.Z`, symlinked from `~/.codegraph/current` and `~/.local/bin/codegraph`) or `npm i -g @colbymchenry/codegraph` | you: `codegraph upgrade` (install.sh installs; `--check` only checks) or `npm update -g @colbymchenry/codegraph` |
 | CodeGraph MCP server | the CLI itself: `codegraph serve --mcp` (server name `codegraph`, version = the CLI's package version) | updated with the CLI; a running server or shared daemon keeps its old version until it restarts (new Pi session, `/reload`, or `codegraph daemon` stop) |
 
-This package never installs or upgrades the CLI. Upstream's MCP server checks GitHub for a newer release in the background (24 h cache in `~/.codegraph/`) and only reports it (stderr, MCP `initialize` instructions, `codegraph_status`) as "run `codegraph upgrade`"; `CODEGRAPH_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` turns that check off. `/codegraph status` shows the CLI path and version in use.
+This package never upgrades the CLI, and installs it only when you ask: `/codegraph install-deps` (or the umbrella's `/oh-my-pi install-deps`) runs upstream's install.sh when no CLI is found (see below). Upstream's MCP server checks GitHub for a newer release in the background (24 h cache in `~/.codegraph/`) and only reports it (stderr, MCP `initialize` instructions, `codegraph_status`) as "run `codegraph upgrade`"; `CODEGRAPH_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` turns that check off. `/codegraph status` shows the CLI path and version in use.
+
+## Dependency check and install
+
+`/codegraph doctor` (also run by the umbrella's `/oh-my-pi doctor`, provider id `codegraph`) only inspects: it runs `codegraph --version` (5 s bound) and nothing else, downloads nothing, writes no config and creates no index. It reports, with an action for every problem:
+
+| Item | Status |
+|---|---|
+| `mcp.json "codegraph" entry` (only when `~/.pi/agent/mcp.json` or a trusted project's `.pi/mcp.json` defines one) | `ok` for a remote (`url`, never printed) server, a disabled entry (`enabled: false`), an `enabled`/`exposure` override, or a `command` that resolves; `error` when the entry's `command` is not an executable file or on `PATH` (fix the entry; the extension never edits it); `unverified` for an entry with neither. |
+| `PI_CODEGRAPH_MCP` (only when set) | `ok`, or an optional `warn` for an invalid value. |
+| `codegraph CLI` | Resolved exactly like the extension: `PI_CODEGRAPH_BIN`, `PATH`, `~/.local/bin/codegraph`, `~/.codegraph/current/bin/codegraph`. `ok` with path and version; `error` when it is missing, `--version` fails, or `PI_CODEGRAPH_BIN` is wrong. When an mcp.json entry supplies the server (remote, own command, or disabled), MCP does not need the local CLI: a missing CLI is then `ok` with a note (only `/codegraph init`, `sync`, `status` need it). |
+| `project index` | Per project and optional: `ok` with the index found at or above the session directory (or the entry's `--path`/`cwd`; a remote server keeps its own), otherwise `warn` with the action `/codegraph init`. Never created by doctor or install-deps. |
+
+`/codegraph install-deps` (also `/oh-my-pi install-deps`):
+
+- **Installs automatically** only a missing CLI that MCP needs (no mcp.json entry supplies the server), on Linux or macOS, x64 or arm64, with `curl`, `sh` and `tar` on `PATH`: it downloads upstream's [install.sh](https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh) to a temporary file and runs it with your `HOME` (and without `CODEGRAPH_INSTALL_DIR`/`CODEGRAPH_BIN_DIR`, so it lands where the extension looks): a self-contained bundle with its own Node runtime in `~/.codegraph/versions/<tag>`, linked from `~/.codegraph/current` and `~/.local/bin/codegraph`. It then re-checks (`codegraph --version`) and reports `installed` only when that passes; when the session directory is indexed, the MCP server connects right away. If `~/.local/bin` is not on your `PATH`, Pi still finds the CLI and the report says how to add it for shells.
+- **Why install.sh and not npm**: it is upstream's documented installer, needs no privileges, no Node.js and no npm prefix. `npm i -g @colbymchenry/codegraph` works without sudo only when npm's global prefix is user-writable, which a system Node usually is not; it stays a manual alternative.
+- **Reports as `manual`** (with the exact command): Windows (`irm https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.ps1 | iex` in PowerShell), other platforms or CPUs (npm with a user-writable prefix), missing `curl`/`tar`, a wrong `PI_CODEGRAPH_BIN`, an existing CLI that does not run (never replaced), a permission error writing `~/.codegraph` or `~/.local/bin` (fix their ownership, then retry), a broken mcp.json entry.
+- **`failed`** (with the error tail and the manual `curl … | sh` command): the download, install.sh, or the re-check failed.
+- **Already installed**: `ok`, nothing runs. Upgrades stay with you (`codegraph upgrade`). It never writes mcp.json and never creates an index (`/codegraph init`). One install runs at a time per session.
 
 ## Configuration
 
@@ -111,7 +132,7 @@ It has no runtime npm dependencies (Pi is the host); orche workers get CodeGraph
 ```sh
 npm install
 npm run typecheck
-npm test   # unit tests, plus real Pi session + real codegraph CLI tests (skipped when the CLI is missing)
+npm test   # unit tests (doctor/install-deps with fake binaries, a fake runner and a temporary HOME: nothing is downloaded), plus real Pi session + real codegraph CLI tests (skipped when the CLI is missing)
 ```
 
 `test/pi-mcp.test.ts` loads the extension with Pi's resource loader and built-in MCP extension in an isolated agent directory, runs `/codegraph init` on a copy of `test/fixtures/sample` in a path with spaces, and calls `codegraph_explore` through Pi; it also checks that a user `mcp.json` entry (other exposure, or `enabled: false`) keeps precedence.
