@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  createAgentSession, createMcpExtension, DefaultResourceLoader, SessionManager, SettingsManager,
+  createAgentSession, createMcpExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { EXPLORE_TOOL, resolveCodegraphBinary, SERVER_NAME } from "../src/core.ts";
 
@@ -28,6 +28,17 @@ async function start(t: TestContext, setup: (paths: { agentDir: string; project:
   process.env.PI_CODING_AGENT_DIR = agentDir; // the MCP extension reads <agent dir>/mcp.json
   // Serve in-process, so the stdio server Pi stops is the whole server (no detached shared daemon outlives the test).
   process.env.CODEGRAPH_NO_DAEMON = "1";
+  let session: AgentSession | undefined;
+  t.after(async () => {
+    try { await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); }
+    finally {
+      session?.dispose();
+      for (const [key, value] of [["PI_CODING_AGENT_DIR", previous.agentDir], ["CODEGRAPH_NO_DAEMON", previous.noDaemon]] as const) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   setup({ agentDir, project });
   const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false } });
   const loader = new DefaultResourceLoader({
@@ -37,7 +48,10 @@ async function start(t: TestContext, setup: (paths: { agentDir: string; project:
   });
   await loader.reload();
   assert.deepEqual(loader.getExtensions().errors, []);
-  const { session } = await createAgentSession({ cwd: project, agentDir, resourceLoader: loader, settingsManager, sessionManager: SessionManager.inMemory(project) });
+  const modelRuntime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: null, refreshOnCreate: false });
+  const created = await createAgentSession({ cwd: project, agentDir, modelRuntime, resourceLoader: loader, settingsManager, sessionManager: SessionManager.inMemory(project) });
+  session = created.session;
+  const current = created.session;
   const notes: string[] = [];
   const errors: string[] = [];
   // A headless UI: notifications are recorded, every other UI method is a no-op (Pi copies the methods it binds).
@@ -45,20 +59,10 @@ async function start(t: TestContext, setup: (paths: { agentDir: string; project:
     "input", "onTerminalInput", "pasteToEditor", "select", "setEditorComponent", "setEditorText", "setFooter", "setHeader", "setHiddenThinkingLabel",
     "setStatus", "setTheme", "setTitle", "setToolsExpanded", "setWidget", "setWorkingIndicator", "setWorkingMessage", "setWorkingVisible"];
   const ui = { ...Object.fromEntries(methods.map(name => [name, () => undefined])), notify: (text: string) => { notes.push(text); } };
-  await session.bindExtensions({ uiContext: ui as never, onError: error => errors.push(String((error as { error?: unknown }).error ?? error)) });
-  t.after(async () => {
-    // What Pi does on exit: session_shutdown closes the MCP connections (stopping the stdio server), then dispose.
-    await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
-    session.dispose();
-    for (const [key, value] of [["PI_CODING_AGENT_DIR", previous.agentDir], ["CODEGRAPH_NO_DAEMON", previous.noDaemon]] as const) {
-      if (value === undefined) delete process.env[key]; else process.env[key] = value;
-    }
-    await new Promise(done => setTimeout(done, 300));
-    rmSync(root, { recursive: true, force: true });
-  });
+  await current.bindExtensions({ uiContext: ui as never, onError: error => errors.push(String((error as { error?: unknown }).error ?? error)) });
   // Read the runner on each use: a reload replaces it.
-  const command = (args: string) => session.extensionRunner.getCommand("codegraph")!.handler(args, session.extensionRunner.createCommandContext());
-  const tool = () => session.getAllTools().find(info => info.name === EXPLORE_TOOL);
+  const command = (args: string) => current.extensionRunner.getCommand("codegraph")!.handler(args, current.extensionRunner.createCommandContext());
+  const tool = () => current.getAllTools().find(info => info.name === EXPLORE_TOOL);
   const waitFor = async <T>(probe: () => T | undefined, ms: number): Promise<T | undefined> => {
     for (const deadline = Date.now() + ms; Date.now() < deadline; await new Promise(done => setTimeout(done, 200))) {
       const value = probe();
@@ -66,7 +70,7 @@ async function start(t: TestContext, setup: (paths: { agentDir: string; project:
     }
     return probe();
   };
-  return { session, project, agentDir, notes, errors, command, tool, waitFor };
+  return { session: current, project, agentDir, notes, errors, command, tool, waitFor };
 }
 
 test("isolated Pi session: /codegraph init indexes the project and the real codegraph_explore tool answers", { skip, timeout: 180_000 }, async (t) => {
